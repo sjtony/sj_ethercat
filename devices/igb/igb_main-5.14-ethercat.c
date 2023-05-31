@@ -40,6 +40,17 @@
 #include <linux/i2c.h>
 #include "igb-5.14-ethercat.h"
 
+#ifdef CONFIG_SUSE_KERNEL
+#include <linux/suse_version.h>
+#else
+#  ifndef SUSE_VERSION
+#    define SUSE_VERSION 0
+#  endif
+#  ifndef SUSE_PATCHLEVEL
+#    define SUSE_PATCHLEVEL 0
+#  endif
+#endif
+
 enum queue_mode {
 	QUEUE_MODE_STRICT_PRIORITY,
 	QUEUE_MODE_STREAM_RESERVATION,
@@ -8532,7 +8543,11 @@ static struct sk_buff *igb_run_xdp(struct igb_adapter *adapter,
 		result = IGB_XDP_REDIR;
 		break;
 	default:
+#if SUSE_VERSION == 15 && SUSE_PATCHLEVEL == 5
+		bpf_warn_invalid_xdp_action(adapter->netdev, xdp_prog, act);
+#else
 		bpf_warn_invalid_xdp_action(act);
+#endif
 		fallthrough;
 	case XDP_ABORTED:
 out_failure:
