@@ -876,7 +876,13 @@ static void igb_get_drvinfo(struct net_device *netdev,
 }
 
 static void igb_get_ringparam(struct net_device *netdev,
+#if SUSE_VERSION == 15 && SUSE_PATCHLEVEL == 5
+			      struct ethtool_ringparam *ring,
+                              struct kernel_ethtool_ringparam *kring,
+                              struct netlink_ext_ack *ack)
+#else
 			      struct ethtool_ringparam *ring)
+#endif
 {
 	struct igb_adapter *adapter = netdev_priv(netdev);
 
@@ -887,7 +893,13 @@ static void igb_get_ringparam(struct net_device *netdev,
 }
 
 static int igb_set_ringparam(struct net_device *netdev,
-			     struct ethtool_ringparam *ring)
+#if SUSE_VERSION == 15 && SUSE_PATCHLEVEL == 5
+			      struct ethtool_ringparam *ring,
+                              struct kernel_ethtool_ringparam *kring,
+                              struct netlink_ext_ack *ack)
+#else
+			      struct ethtool_ringparam *ring)
+#endif
 {
 	struct igb_adapter *adapter = netdev_priv(netdev);
 	struct igb_ring *temp_ring;
