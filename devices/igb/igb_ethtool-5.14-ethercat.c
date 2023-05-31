@@ -18,6 +18,18 @@
 
 #include "igb-5.14-ethercat.h"
 
+
+#ifdef CONFIG_SUSE_KERNEL
+#include <linux/suse_version.h>
+#else
+#  ifndef SUSE_VERSION
+#    define SUSE_VERSION 0
+#  endif
+#  ifndef SUSE_PATCHLEVEL
+#    define SUSE_PATCHLEVEL 0
+#  endif
+#endif
+
 struct igb_stats {
 	char stat_string[ETH_GSTRING_LEN];
 	int sizeof_stat;
@@ -2182,10 +2194,13 @@ static int igb_set_phys_id(struct net_device *netdev,
 }
 
 static int igb_set_coalesce(struct net_device *netdev,
+#if SUSE_VERSION == 15 && SUSE_PATCHLEVEL >= 4
 			    struct ethtool_coalesce *ec,
 			    struct kernel_ethtool_coalesce *kec,
 			    struct netlink_ext_ack *ack)
-
+#else
+			    struct ethtool_coalesce *ec)
+#endif
 {
 	struct igb_adapter *adapter = netdev_priv(netdev);
 	int i;
@@ -2241,10 +2256,13 @@ static int igb_set_coalesce(struct net_device *netdev,
 }
 
 static int igb_get_coalesce(struct net_device *netdev,
+#if SUSE_VERSION == 15 && SUSE_PATCHLEVEL >= 4
 			    struct ethtool_coalesce *ec,
 			    struct kernel_ethtool_coalesce *kec,
 			    struct netlink_ext_ack *ack)
-
+#else
+			    struct ethtool_coalesce *ec)
+#endif
 {
 	struct igb_adapter *adapter = netdev_priv(netdev);
 
