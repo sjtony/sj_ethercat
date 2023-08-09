@@ -55,7 +55,7 @@ doxygen:
     script:
         - ./bootstrap
         - ./configure --with-linux-dir=/usr/src/linux-obj/$(uname -i)/default --disable-8139too --enable-tty --with-devices=2 --enable-ccat
-        - doxygen
+        - make doc
         - mv doxygen-output/html/ html/
     artifacts:
         paths:
