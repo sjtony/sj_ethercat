@@ -138,3 +138,16 @@ def dump_markdown(table_data):
             ans += cell_fmt_center.format(cell)
         ans += '|'
     return ans
+
+
+if __name__ == "__main__":
+    from sys import argv
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--markdown", nargs=1)
+    parser.add_argument("devices_dir", nargs=1)
+    args = parser.parse_args(argv[1:])
+    table = compute_table(get_all_drivers(args.devices_dir[0]))
+    if args.markdown is not None:
+        with open(args.markdown[0], "w") as f:
+            f.write(dump_markdown(table))
