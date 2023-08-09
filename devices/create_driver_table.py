@@ -129,9 +129,12 @@ def dump_markdown(table_data):
     ans = cell_fmt_left.format(table_data[0][0])
     for cell in table_data[0][1:]:
         ans += cell_fmt_center.format(cell)
+    ans += '|\n|-' + "-" * width + ":|"
+    for i in range(len(table_data[0]) - 1):
+        ans += ':' + "-" * width + ':|'
     for row in table_data[1:]:
-        ans += '|\n' + cell_fmt_right.format(row[0])
+        ans += '\n' + cell_fmt_right.format(row[0])
         for cell in row[1:]:
             ans += cell_fmt_center.format(cell)
-    ans += '|'
+        ans += '|'
     return ans
