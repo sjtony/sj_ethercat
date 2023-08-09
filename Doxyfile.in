@@ -657,7 +657,8 @@ WARN_LOGFILE           =
 
 INPUT                  = @top_srcdir@/master \
                          @top_srcdir@/include \
-                         @top_srcdir@/devices/ecdev.h
+                         @top_srcdir@/devices/ecdev.h \
+                         @top_builddir@/device_drivers.md
 
 # This tag can be used to specify the character encoding of the source files
 # that doxygen parses. Internally doxygen uses the UTF-8 encoding, which is
