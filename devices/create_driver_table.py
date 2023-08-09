@@ -144,10 +144,20 @@ if __name__ == "__main__":
     from sys import argv
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--markdown", nargs=1)
-    parser.add_argument("devices_dir", nargs=1)
+    parser.add_argument(
+            "--markdown",
+            nargs=1,
+            help="Markdown output file",
+            type=argparse.FileType("w")
+    )
+    parser.add_argument(
+            "devices_dir",
+            nargs=1,
+            help="Devices driver source dir"
+    )
     args = parser.parse_args(argv[1:])
     table = compute_table(get_all_drivers(args.devices_dir[0]))
     if args.markdown is not None:
-        with open(args.markdown[0], "w") as f:
+        with args.markdown[0] as f:
             f.write(dump_markdown(table))
+            f.write('\n')
