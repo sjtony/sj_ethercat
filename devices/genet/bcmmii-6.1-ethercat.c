@@ -101,9 +101,12 @@ static void bcmgenet_mac_config(struct net_device *dev)
 void bcmgenet_mii_setup(struct net_device *dev)
 {
 	struct phy_device *phydev = dev->phydev;
+	struct bcmgenet_priv *priv = netdev_priv(dev);
 
 	if (phydev->link)
 		bcmgenet_mac_config(dev);
+	if (priv->ecdev)
+		ecdev_set_link(priv->ecdev, phydev->link);
 	phy_print_status(phydev);
 }
 
