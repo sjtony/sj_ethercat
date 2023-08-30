@@ -23,7 +23,7 @@
 #include <linux/platform_data/bcmgenet.h>
 #include <linux/platform_data/mdio-bcm-unimac.h>
 
-#include "bcmgenet.h"
+#include "bcmgenet-6.1-ethercat.h"
 
 static void bcmgenet_mac_config(struct net_device *dev)
 {

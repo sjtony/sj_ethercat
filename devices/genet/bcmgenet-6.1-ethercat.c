@@ -39,7 +39,7 @@
 
 #include <asm/unaligned.h>
 
-#include "bcmgenet.h"
+#include "bcmgenet-6.1-ethercat.h"
 
 /* Maximum number of hardware queues, downsized if needed */
 #define GENET_MAX_MQ_CNT	4
@@ -1897,7 +1897,8 @@ static unsigned int __bcmgenet_tx_reclaim(struct net_device *dev,
 		if (skb) {
 			pkts_compl++;
 			bytes_compl += GENET_CB(skb)->bytes_sent;
-			dev_consume_skb_any(skb);
+			if (!priv->ecdev)
+				dev_consume_skb_any(skb);
 		}
 
 		txbds_processed++;
@@ -1913,8 +1914,9 @@ static unsigned int __bcmgenet_tx_reclaim(struct net_device *dev,
 	ring->packets += pkts_compl;
 	ring->bytes += bytes_compl;
 
-	netdev_tx_completed_queue(netdev_get_tx_queue(dev, ring->queue),
-				  pkts_compl, bytes_compl);
+	if (!priv->ecdev)
+		netdev_tx_completed_queue(netdev_get_tx_queue(dev, ring->queue),
+					pkts_compl, bytes_compl);
 
 	return txbds_processed;
 }
@@ -1940,15 +1942,17 @@ static int bcmgenet_tx_poll(struct napi_struct *napi, int budget)
 
 	spin_lock(&ring->lock);
 	work_done = __bcmgenet_tx_reclaim(ring->priv->dev, ring);
-	if (ring->free_bds > (MAX_SKB_FRAGS + 1)) {
+	if (!ring->priv->ecdev && ring->free_bds > (MAX_SKB_FRAGS + 1)) {
 		txq = netdev_get_tx_queue(ring->priv->dev, ring->queue);
 		netif_tx_wake_queue(txq);
 	}
 	spin_unlock(&ring->lock);
 
 	if (work_done == 0) {
-		napi_complete(napi);
-		ring->int_enable(ring);
+		if (!ring->priv->ecdev) {
+			napi_complete(napi);
+			ring->int_enable(ring);
+		}
 
 		return 0;
 	}
@@ -2072,7 +2076,7 @@ static netdev_tx_t bcmgenet_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	spin_lock(&ring->lock);
 	if (ring->free_bds <= (nr_frags + 1)) {
-		if (!netif_tx_queue_stopped(txq)) {
+		if (!priv->ecdev && !netif_tx_queue_stopped(txq)) {
 			netif_tx_stop_queue(txq);
 			netdev_err(dev,
 				   "%s: tx ring %d full when queue %d awake\n",
@@ -2152,12 +2156,14 @@ static netdev_tx_t bcmgenet_xmit(struct sk_buff *skb, struct net_device *dev)
 	ring->prod_index += nr_frags + 1;
 	ring->prod_index &= DMA_P_INDEX_MASK;
 
-	netdev_tx_sent_queue(txq, GENET_CB(skb)->bytes_sent);
+	if (!priv->ecdev) {
+		netdev_tx_sent_queue(txq, GENET_CB(skb)->bytes_sent);
 
-	if (ring->free_bds <= (MAX_SKB_FRAGS + 1))
-		netif_tx_stop_queue(txq);
+		if (ring->free_bds <= (MAX_SKB_FRAGS + 1))
+			netif_tx_stop_queue(txq);
+	}
 
-	if (!netdev_xmit_more() || netif_xmit_stopped(txq))
+	if (priv->ecdev || !netdev_xmit_more() || netif_xmit_stopped(txq))
 		/* Packets are ready, update producer index */
 		bcmgenet_tdma_ring_writel(priv, ring->index,
 					  ring->prod_index, TDMA_PROD_INDEX);
@@ -2176,7 +2182,8 @@ out_unmap_frags:
 		bcmgenet_free_tx_cb(kdev, tx_cb_ptr);
 	}
 
-	dev_kfree_skb(skb);
+	if (!priv->ecdev)
+		dev_kfree_skb(skb);
 	goto out;
 }
 
@@ -2280,7 +2287,10 @@ static unsigned int bcmgenet_desc_rx(struct bcmgenet_rx_ring *ring,
 		__be16 rx_csum;
 
 		cb = &priv->rx_cbs[ring->read_ptr];
-		skb = bcmgenet_rx_refill(priv, cb);
+		if (priv->ecdev)
+			skb = cb->skb;
+		else
+			skb = bcmgenet_rx_refill(priv, cb);
 
 		if (unlikely(!skb)) {
 			ring->dropped++;
@@ -2312,7 +2322,8 @@ static unsigned int bcmgenet_desc_rx(struct bcmgenet_rx_ring *ring,
 			netif_err(priv, rx_status, dev, "oversized packet\n");
 			dev->stats.rx_length_errors++;
 			dev->stats.rx_errors++;
-			dev_kfree_skb_any(skb);
+			if (!priv->ecdev)
+				dev_kfree_skb_any(skb);
 			goto next;
 		}
 
@@ -2320,7 +2331,8 @@ static unsigned int bcmgenet_desc_rx(struct bcmgenet_rx_ring *ring,
 			netif_err(priv, rx_status, dev,
 				  "dropping fragmented packet!\n");
 			ring->errors++;
-			dev_kfree_skb_any(skb);
+			if (!priv->ecdev)
+				dev_kfree_skb_any(skb);
 			goto next;
 		}
 
@@ -2341,18 +2353,22 @@ static unsigned int bcmgenet_desc_rx(struct bcmgenet_rx_ring *ring,
 			if (dma_flag & DMA_RX_LG)
 				dev->stats.rx_length_errors++;
 			dev->stats.rx_errors++;
-			dev_kfree_skb_any(skb);
+			if (!priv->ecdev)
+				dev_kfree_skb_any(skb);
 			goto next;
 		} /* error packet */
 
-		skb_put(skb, len);
+		if (!priv->ecdev) {
+			skb_put(skb, len);
 
-		/* remove RSB and hardware 2bytes added for IP alignment */
-		skb_pull(skb, 66);
+			/* remove RSB and hardware 2bytes added for IP alignment */
+			skb_pull(skb, 66);
+		}
 		len -= 66;
 
 		if (priv->crc_fwd_en) {
-			skb_trim(skb, len - ETH_FCS_LEN);
+			if (!priv->ecdev)
+				skb_trim(skb, len - ETH_FCS_LEN);
 			len -= ETH_FCS_LEN;
 		}
 
@@ -2365,8 +2381,19 @@ static unsigned int bcmgenet_desc_rx(struct bcmgenet_rx_ring *ring,
 		if (dma_flag & DMA_RX_MULT)
 			dev->stats.multicast++;
 
-		/* Notify kernel */
-		napi_gro_receive(&ring->napi, skb);
+		if (priv->ecdev) {
+			// dma_addr_t mapping;
+			const unsigned char *data = skb->data + 66;
+
+			ecdev_receive(priv->ecdev, data, len);
+			/* re-write dma address to device. does it have side effects?
+			mapping = dma_unmap_addr(cb, dma_addr);
+			dmadesc_set_addr(priv, cb->bd_addr, mapping);
+			*/
+		} else {
+			/* Notify kernel */
+			napi_gro_receive(&ring->napi, skb);
+		}
 		netif_dbg(priv, rx_status, dev, "pushed up to kernel\n");
 
 next:
@@ -2396,18 +2423,40 @@ static int bcmgenet_rx_poll(struct napi_struct *napi, int budget)
 
 	work_done = bcmgenet_desc_rx(ring, budget);
 
-	if (work_done < budget) {
+	if (work_done < budget && !ring->priv->ecdev) {
 		napi_complete_done(napi, work_done);
 		ring->int_enable(ring);
 	}
 
-	if (ring->dim.use_dim) {
+	if (ring->dim.use_dim && !ring->priv->ecdev) {
 		dim_update_sample(ring->dim.event_ctr, ring->dim.packets,
 				  ring->dim.bytes, &dim_sample);
 		net_dim(&ring->dim.dim, dim_sample);
 	}
 
 	return work_done;
+}
+
+
+/**
+* ec_poll - EtherCAT poll routine
+* @netdev: net device structure
+*
+* This function can never fail.
+*
+**/
+static void ec_poll(struct net_device *netdev)
+{
+	struct bcmgenet_priv *priv = netdev_priv(netdev);
+	unsigned i;
+	int budget = 64;
+
+	bcmgenet_tx_reclaim_all(netdev);
+	for (i = 0; i < priv->hw_params->rx_queues; i++) {
+		bcmgenet_desc_rx(&priv->rx_rings[i], budget);
+	}
+
+	bcmgenet_desc_rx(&priv->rx_rings[DESC_INDEX], budget);
 }
 
 static void bcmgenet_dim_work(struct work_struct *work)
@@ -2610,6 +2659,9 @@ static void bcmgenet_init_rx_coalesce(struct bcmgenet_rx_ring *ring)
 	usecs = ring->rx_coalesce_usecs;
 	pkts = ring->rx_max_coalesced_frames;
 
+	if (ring->priv->ecdev)
+		return;
+
 	/* If DIM was enabled, re-apply default parameters */
 	if (dim->use_dim) {
 		moder = net_dim_get_def_rx_moderation(dim->dim.mode);
@@ -2676,7 +2728,8 @@ static void bcmgenet_init_tx_ring(struct bcmgenet_priv *priv,
 				  DMA_END_ADDR);
 
 	/* Initialize Tx NAPI */
-	netif_napi_add_tx(priv->dev, &ring->napi, bcmgenet_tx_poll);
+	if (!priv->ecdev)
+		netif_napi_add_tx(priv->dev, &ring->napi, bcmgenet_tx_poll);
 }
 
 /* Initialize a RDMA ring */
@@ -2712,7 +2765,8 @@ static int bcmgenet_init_rx_ring(struct bcmgenet_priv *priv,
 	bcmgenet_init_rx_coalesce(ring);
 
 	/* Initialize Rx NAPI */
-	netif_napi_add(priv->dev, &ring->napi, bcmgenet_rx_poll);
+	if (!priv->ecdev)
+		netif_napi_add(priv->dev, &ring->napi, bcmgenet_rx_poll);
 
 	bcmgenet_rdma_ring_writel(priv, index, 0, RDMA_PROD_INDEX);
 	bcmgenet_rdma_ring_writel(priv, index, 0, RDMA_CONS_INDEX);
@@ -2742,6 +2796,9 @@ static void bcmgenet_enable_tx_napi(struct bcmgenet_priv *priv)
 	unsigned int i;
 	struct bcmgenet_tx_ring *ring;
 
+	if (priv->ecdev)
+		return;
+
 	for (i = 0; i < priv->hw_params->tx_queues; ++i) {
 		ring = &priv->tx_rings[i];
 		napi_enable(&ring->napi);
@@ -2758,6 +2815,9 @@ static void bcmgenet_disable_tx_napi(struct bcmgenet_priv *priv)
 	unsigned int i;
 	struct bcmgenet_tx_ring *ring;
 
+	if (priv->ecdev)
+		return;
+
 	for (i = 0; i < priv->hw_params->tx_queues; ++i) {
 		ring = &priv->tx_rings[i];
 		napi_disable(&ring->napi);
@@ -2771,6 +2831,9 @@ static void bcmgenet_fini_tx_napi(struct bcmgenet_priv *priv)
 {
 	unsigned int i;
 	struct bcmgenet_tx_ring *ring;
+
+	if (priv->ecdev)
+		return;
 
 	for (i = 0; i < priv->hw_params->tx_queues; ++i) {
 		ring = &priv->tx_rings[i];
@@ -2855,6 +2918,9 @@ static void bcmgenet_enable_rx_napi(struct bcmgenet_priv *priv)
 	unsigned int i;
 	struct bcmgenet_rx_ring *ring;
 
+	if (priv->ecdev)
+		return;
+
 	for (i = 0; i < priv->hw_params->rx_queues; ++i) {
 		ring = &priv->rx_rings[i];
 		napi_enable(&ring->napi);
@@ -2871,6 +2937,9 @@ static void bcmgenet_disable_rx_napi(struct bcmgenet_priv *priv)
 	unsigned int i;
 	struct bcmgenet_rx_ring *ring;
 
+	if (priv->ecdev)
+		return;
+
 	for (i = 0; i < priv->hw_params->rx_queues; ++i) {
 		ring = &priv->rx_rings[i];
 		napi_disable(&ring->napi);
@@ -2886,6 +2955,9 @@ static void bcmgenet_fini_rx_napi(struct bcmgenet_priv *priv)
 {
 	unsigned int i;
 	struct bcmgenet_rx_ring *ring;
+
+	if (priv->ecdev)
+		return;
 
 	for (i = 0; i < priv->hw_params->rx_queues; ++i) {
 		ring = &priv->rx_rings[i];
@@ -3424,7 +3496,8 @@ static int bcmgenet_open(struct net_device *dev)
 
 	bcmgenet_netif_start(dev);
 
-	netif_tx_start_all_queues(dev);
+	if (!priv->ecdev)
+		netif_tx_start_all_queues(dev);
 
 	return 0;
 
@@ -4148,10 +4221,21 @@ static int bcmgenet_probe(struct platform_device *pdev)
 	/* Turn off the main clock, WOL clock is handled separately */
 	clk_disable_unprepare(priv->clk);
 
-	err = register_netdev(dev);
-	if (err) {
-		bcmgenet_mii_exit(dev);
-		goto err;
+	priv->ecdev = ecdev_offer(dev, ec_poll, THIS_MODULE);
+	if (priv->ecdev) {
+		err = ecdev_open(priv->ecdev);
+		if (err) {
+			ecdev_withdraw(priv->ecdev);
+			priv->ecdev = NULL;
+			bcmgenet_mii_exit(dev);
+			goto err;
+		}
+	} else {
+		err = register_netdev(dev);
+		if (err) {
+			bcmgenet_mii_exit(dev);
+			goto err;
+		}
 	}
 
 	return err;
@@ -4168,7 +4252,12 @@ static int bcmgenet_remove(struct platform_device *pdev)
 	struct bcmgenet_priv *priv = dev_to_priv(&pdev->dev);
 
 	dev_set_drvdata(&pdev->dev, NULL);
-	unregister_netdev(priv->dev);
+	if (priv->ecdev) {
+		ecdev_close(priv->ecdev);
+		ecdev_withdraw(priv->ecdev);
+		priv->ecdev = NULL;
+	} else
+		unregister_netdev(priv->dev);
 	bcmgenet_mii_exit(priv->dev);
 	free_netdev(priv->dev);
 
@@ -4188,7 +4277,9 @@ static int bcmgenet_resume_noirq(struct device *d)
 	int ret;
 	u32 reg;
 
-	if (!netif_running(dev))
+	if (priv->ecdev)
+		ecdev_open(priv->ecdev);
+	else if (!netif_running(dev))
 		return 0;
 
 	/* Turn on the clock */
@@ -4273,7 +4364,10 @@ static int bcmgenet_resume(struct device *d)
 
 	bcmgenet_netif_start(dev);
 
-	netif_device_attach(dev);
+	if (priv->ecdev)
+		ecdev_open(priv->ecdev);
+	else
+		netif_device_attach(dev);
 
 	return 0;
 
@@ -4289,10 +4383,14 @@ static int bcmgenet_suspend(struct device *d)
 	struct net_device *dev = dev_get_drvdata(d);
 	struct bcmgenet_priv *priv = netdev_priv(dev);
 
-	if (!netif_running(dev))
-		return 0;
+	if (priv->ecdev) {
+		ecdev_close(priv->ecdev);
+	} else {
+		if (!netif_running(dev))
+			return 0;
 
-	netif_device_detach(dev);
+		netif_device_detach(dev);
+	}
 
 	bcmgenet_netif_stop(dev, true);
 
@@ -4311,7 +4409,9 @@ static int bcmgenet_suspend_noirq(struct device *d)
 	struct bcmgenet_priv *priv = netdev_priv(dev);
 	int ret = 0;
 
-	if (!netif_running(dev))
+	if (priv->ecdev) {
+		ecdev_close(priv->ecdev);
+	} else if (!netif_running(dev))
 		return 0;
 
 	/* Prepare the device for Wake-on-LAN and switch to the slow clock */
@@ -4354,7 +4454,7 @@ static struct platform_driver bcmgenet_driver = {
 	.remove	= bcmgenet_remove,
 	.shutdown = bcmgenet_shutdown,
 	.driver	= {
-		.name	= "bcmgenet",
+		.name	= "ec_bcmgenet",
 		.of_match_table = bcmgenet_match,
 		.pm	= &bcmgenet_pm_ops,
 		.acpi_match_table = genet_acpi_match,
@@ -4363,7 +4463,7 @@ static struct platform_driver bcmgenet_driver = {
 module_platform_driver(bcmgenet_driver);
 
 MODULE_AUTHOR("Broadcom Corporation");
-MODULE_DESCRIPTION("Broadcom GENET Ethernet controller driver");
-MODULE_ALIAS("platform:bcmgenet");
+MODULE_DESCRIPTION("Broadcom GENET Ethernet controller driver "
+	"(EtherCAT enabled, Version " REV ")");
 MODULE_LICENSE("GPL");
 MODULE_SOFTDEP("pre: mdio-bcm-unimac");

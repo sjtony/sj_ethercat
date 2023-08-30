@@ -46,7 +46,7 @@ ifeq (@ENABLE_GENET@,1)
         bcmmii-@KERNEL_GENET@-ethercat.o \
         bcmgenet_wol-@KERNEL_GENET@-ethercat.o
 
-    CFLAGS_bcmgenet-@KERNEL_GENET@-ethercat.o = -DREV=$(REV)
+    CFLAGS_bcmgenet-@KERNEL_GENET@-ethercat.o = -DREV="\"$(REV)\""
 endif
 
 KBUILD_EXTRA_SYMBOLS := \

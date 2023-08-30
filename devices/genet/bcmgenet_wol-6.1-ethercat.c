@@ -32,7 +32,7 @@
 #include <linux/ipv6.h>
 #include <linux/phy.h>
 
-#include "bcmgenet.h"
+#include "bcmgenet-6.1-ethercat.h"
 
 /* ethtool function - get WOL (Wake on LAN) settings, Only Magic Packet
  * Detection is supported through ethtool

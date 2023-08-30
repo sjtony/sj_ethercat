@@ -16,7 +16,10 @@
 #include <linux/dim.h>
 #include <linux/ethtool.h>
 
-#include "../unimac.h"
+#include "unimac-6.1-ethercat.h"
+
+/* EtherCAT header file */
+#include "../ecdev.h"
 
 /* total number of Buffer Descriptors, same for Rx/Tx */
 #define TOTAL_DESC				256
@@ -646,6 +649,8 @@ struct bcmgenet_priv {
 	struct bcmgenet_mib_counters mib;
 
 	struct ethtool_eee eee;
+	/* EtherCAT device variables */
+	ec_device_t *ecdev;
 };
 
 #define GENET_IO_MACRO(name, offset)					\
