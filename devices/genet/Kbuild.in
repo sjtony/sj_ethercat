@@ -40,8 +40,8 @@ REV := $(shell if test -s $(TOPDIR)/revision; then \
 	fi)
 
 ifeq (@ENABLE_GENET@,1)
-    obj-m += genet.o
-    genet-objs := \
+    obj-m += ec_genet.o
+    ec_genet-objs := \
         bcmgenet-@KERNEL_GENET@-ethercat.o \
         bcmmii-@KERNEL_GENET@-ethercat.o \
         bcmgenet_wol-@KERNEL_GENET@-ethercat.o
