@@ -2237,6 +2237,7 @@ static unsigned int bcmgenet_desc_rx(struct bcmgenet_rx_ring *ring,
 {
 	struct bcmgenet_priv *priv = ring->priv;
 	struct net_device *dev = priv->dev;
+	struct device *kdev = &priv->pdev->dev;
 	struct enet_cb *cb;
 	struct sk_buff *skb;
 	u32 dma_length_status;
@@ -2288,7 +2289,7 @@ static unsigned int bcmgenet_desc_rx(struct bcmgenet_rx_ring *ring,
 
 		cb = &priv->rx_cbs[ring->read_ptr];
 		if (priv->ecdev)
-			skb = cb->skb;
+			skb = bcmgenet_free_rx_cb(kdev, cb);
 		else
 			skb = bcmgenet_rx_refill(priv, cb);
 
@@ -2366,7 +2367,7 @@ static unsigned int bcmgenet_desc_rx(struct bcmgenet_rx_ring *ring,
 		}
 		len -= 66;
 
-		if (priv->crc_fwd_en) {
+		if (!priv->ecdev && priv->crc_fwd_en) {
 			if (!priv->ecdev)
 				skb_trim(skb, len - ETH_FCS_LEN);
 			len -= ETH_FCS_LEN;
@@ -2382,14 +2383,25 @@ static unsigned int bcmgenet_desc_rx(struct bcmgenet_rx_ring *ring,
 			dev->stats.multicast++;
 
 		if (priv->ecdev) {
-			// dma_addr_t mapping;
+			dma_addr_t mapping;
 			const unsigned char *data = skb->data + 66;
 
 			ecdev_receive(priv->ecdev, data, len);
-			/* re-write dma address to device. does it have side effects?
-			mapping = dma_unmap_addr(cb, dma_addr);
-			dmadesc_set_addr(priv, cb->bd_addr, mapping);
-			*/
+			
+			mapping = dma_map_single(kdev, skb->data, priv->rx_buf_len,
+				 DMA_FROM_DEVICE);
+			if (dma_mapping_error(kdev, mapping)) {
+				priv->mib.rx_dma_failed++;
+				netif_err(priv, rx_err, priv->dev,
+					"%s: Rx skb DMA mapping failed\n", __func__);
+			} else {
+				/* Put the new Rx skb on the ring */
+				cb->skb = skb;
+				dma_unmap_addr_set(cb, dma_addr, mapping);
+				dma_unmap_len_set(cb, dma_len, priv->rx_buf_len);
+				dmadesc_set_addr(priv, cb->bd_addr, mapping);
+
+}
 		} else {
 			/* Notify kernel */
 			napi_gro_receive(&ring->napi, skb);
