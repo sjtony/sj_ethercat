@@ -1940,19 +1940,20 @@ static int bcmgenet_tx_poll(struct napi_struct *napi, int budget)
 	unsigned int work_done = 0;
 	struct netdev_queue *txq;
 
+	if (ring->priv->ecdev)
+		return 0;
+
 	spin_lock(&ring->lock);
 	work_done = __bcmgenet_tx_reclaim(ring->priv->dev, ring);
-	if (!ring->priv->ecdev && ring->free_bds > (MAX_SKB_FRAGS + 1)) {
+	if (ring->free_bds > (MAX_SKB_FRAGS + 1)) {
 		txq = netdev_get_tx_queue(ring->priv->dev, ring->queue);
 		netif_tx_wake_queue(txq);
 	}
 	spin_unlock(&ring->lock);
 
 	if (work_done == 0) {
-		if (!ring->priv->ecdev) {
-			napi_complete(napi);
-			ring->int_enable(ring);
-		}
+		napi_complete(napi);
+		ring->int_enable(ring);
 
 		return 0;
 	}
@@ -2248,15 +2249,17 @@ static unsigned int bcmgenet_desc_rx(struct bcmgenet_rx_ring *ring,
 	unsigned int p_index, mask;
 	unsigned int discards;
 
-	/* Clear status before servicing to reduce spurious interrupts */
-	if (ring->index == DESC_INDEX) {
-		bcmgenet_intrl2_0_writel(priv, UMAC_IRQ_RXDMA_DONE,
-					 INTRL2_CPU_CLEAR);
-	} else {
-		mask = 1 << (UMAC_IRQ1_RX_INTR_SHIFT + ring->index);
-		bcmgenet_intrl2_1_writel(priv,
-					 mask,
-					 INTRL2_CPU_CLEAR);
+	if (!priv->ecdev) {
+		/* Clear status before servicing to reduce spurious interrupts */
+		if (ring->index == DESC_INDEX) {
+			bcmgenet_intrl2_0_writel(priv, UMAC_IRQ_RXDMA_DONE,
+							INTRL2_CPU_CLEAR);
+		} else {
+			mask = 1 << (UMAC_IRQ1_RX_INTR_SHIFT + ring->index);
+			bcmgenet_intrl2_1_writel(priv,
+							mask,
+							INTRL2_CPU_CLEAR);
+		}
 	}
 
 	p_index = bcmgenet_rdma_ring_readl(priv, ring->index, RDMA_PROD_INDEX);
@@ -2435,14 +2438,17 @@ static int bcmgenet_rx_poll(struct napi_struct *napi, int budget)
 	struct dim_sample dim_sample = {};
 	unsigned int work_done;
 
+	if (ring->priv->ecdev)
+		return 0;
+
 	work_done = bcmgenet_desc_rx(ring, budget);
 
-	if (work_done < budget && !ring->priv->ecdev) {
+	if (work_done < budget) {
 		napi_complete_done(napi, work_done);
 		ring->int_enable(ring);
 	}
 
-	if (ring->dim.use_dim && !ring->priv->ecdev) {
+	if (ring->dim.use_dim) {
 		dim_update_sample(ring->dim.event_ctr, ring->dim.packets,
 				  ring->dim.bytes, &dim_sample);
 		net_dim(&ring->dim.dim, dim_sample);
