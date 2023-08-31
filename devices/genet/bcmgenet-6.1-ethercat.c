@@ -2289,6 +2289,7 @@ static unsigned int bcmgenet_desc_rx(struct bcmgenet_rx_ring *ring,
 
 		cb = &priv->rx_cbs[ring->read_ptr];
 		if (priv->ecdev)
+			/* DMA unmap current skb */
 			skb = bcmgenet_free_rx_cb(kdev, cb);
 		else
 			skb = bcmgenet_rx_refill(priv, cb);
@@ -2367,7 +2368,7 @@ static unsigned int bcmgenet_desc_rx(struct bcmgenet_rx_ring *ring,
 		}
 		len -= 66;
 
-		if (!priv->ecdev && priv->crc_fwd_en) {
+		if (priv->crc_fwd_en) {
 			if (!priv->ecdev)
 				skb_trim(skb, len - ETH_FCS_LEN);
 			len -= ETH_FCS_LEN;
@@ -2384,24 +2385,25 @@ static unsigned int bcmgenet_desc_rx(struct bcmgenet_rx_ring *ring,
 
 		if (priv->ecdev) {
 			dma_addr_t mapping;
+			/* skip status block and padding in skb */
 			const unsigned char *data = skb->data + 66;
 
 			ecdev_receive(priv->ecdev, data, len);
-			
+
+			/* remap skb */
 			mapping = dma_map_single(kdev, skb->data, priv->rx_buf_len,
 				 DMA_FROM_DEVICE);
 			if (dma_mapping_error(kdev, mapping)) {
 				priv->mib.rx_dma_failed++;
 				netif_err(priv, rx_err, priv->dev,
 					"%s: Rx skb DMA mapping failed\n", __func__);
+				dev_kfree_skb_any(skb);
 			} else {
-				/* Put the new Rx skb on the ring */
 				cb->skb = skb;
 				dma_unmap_addr_set(cb, dma_addr, mapping);
 				dma_unmap_len_set(cb, dma_len, priv->rx_buf_len);
 				dmadesc_set_addr(priv, cb->bd_addr, mapping);
-
-}
+			}
 		} else {
 			/* Notify kernel */
 			napi_gro_receive(&ring->napi, skb);
