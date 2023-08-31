@@ -2650,8 +2650,11 @@ static void init_umac(struct bcmgenet_priv *priv)
 	}
 
 	/* Enable MDIO interrupts on GENET v3+ */
-	if (priv->hw_params->flags & GENET_HAS_MDIO_INTR)
-		int0_enable |= (UMAC_IRQ_MDIO_DONE | UMAC_IRQ_MDIO_ERROR);
+	if (priv->hw_params->flags & GENET_HAS_MDIO_INTR) {
+		int0_enable |= UMAC_IRQ_MDIO_ERROR;
+		if (!priv->ecdev)
+			int0_enable |= UMAC_IRQ_MDIO_DONE;
+	}
 
 	bcmgenet_intrl2_0_writel(priv, int0_enable, INTRL2_CPU_MASK_CLEAR);
 
