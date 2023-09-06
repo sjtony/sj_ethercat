@@ -1,4 +1,4 @@
-Device Drivers
+Device Drivers                                           {#devicedrivers}
 ==============
 
 This table contains a list of all available native drivers,
