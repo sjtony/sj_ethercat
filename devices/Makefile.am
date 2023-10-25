@@ -31,6 +31,7 @@ SUBDIRS = \
 	ccat \
 	e1000 \
 	e1000e \
+	genet \
 	igb
 
 # using HEADERS to enable tags target
